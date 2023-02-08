@@ -1,0 +1,60 @@
+#!/bin/bash
+export LC_TIME="en_US"
+##
+# based intially on https://raw.githubusercontent.com/bobbyiliev/bash-ssl-checker-tool/master/ssl
+##
+
+##
+if ! [ -x "$(command -v openssl)" ]; then
+	printf '\e[31m'
+	echo "The openssl command is required! Please install it and then try again"
+	printf '\e[0m'
+	exit 1
+fi
+
+##
+# Check if there is an input
+##
+if [[ $1 ]]; then
+	host $1 >/dev/null
+	if [ $? -gt 0 ]; then
+		printf '\e[31m'
+		echo -e "Error: Could Not Resolve $(ColorGreen ${1}) Domain Name..."
+		printf '\e[0m'
+		exit 1
+	fi
+fi
+
+# output status code instead of --fail to show success on e.g. 401 with working cert
+RESPONSE_CODE=$(curl --silent --output /dev/stderr --write-out "%{http_code}" https://$1/ &> /dev/null)
+if [ $? -gt 0 ]; then
+	printf '\e[31m'
+	echo -e "Error with SSL connection to $1"
+	printf '\e[0m'
+	set -e
+	curl  --fail --silent --show-error https://$1/ > /dev/null
+	exit 1
+fi
+
+today=$(date +%F)
+expires=$(echo | openssl s_client -servername $1 -connect $1:443 2>/dev/null | openssl x509 -noout -dates | grep 'notAfter' | sed 's/notAfter=//')
+THIS_CERT_EXPIRY="$((($(date -j -f "%b %d %T %Y %Z" "$expires" +'%s') - $(date -j -f "%F" "$today" +'%s')) / 60 / 60 / 24))"
+if [ "30" -gt "$THIS_CERT_EXPIRY" ]; then
+	printf '\e[33m'
+elif [ "7" -gt "$THIS_CERT_EXPIRY" ]; then
+	printf '\e[31m'
+else
+	printf '\e[32m'
+fi
+printf "%03d" $THIS_CERT_EXPIRY
+printf " days of validity left for %s" "$1"
+if [ "30" -gt "$THIS_CERT_EXPIRY" ]; then
+	printf " - WARNING less than 30 days left"
+elif [ "7" -gt "$THIS_CERT_EXPIRY" ]; then
+	printf " - ERROR less than 30 days left"
+	exit 1
+else
+	printf ""
+fi
+printf '\e[0m\n'
+	

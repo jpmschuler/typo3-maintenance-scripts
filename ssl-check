@@ -1,0 +1,174 @@
+#!/bin/bash
+export LC_TIME="en_US"
+
+##
+# Script which let's you gather some basic information about your SSL certificate
+# based on https://raw.githubusercontent.com/bobbyiliev/bash-ssl-checker-tool/master/ssl
+##
+
+##
+# Colors
+##
+green=$(printf '\e[32m')
+blue=$(printf '\e[34m')
+clear=$(printf '\e[0m')
+orange=$(printf '\e[33m')
+red=$(printf '\e[31m')
+cyan=$(printf '\e[36m')
+##
+# Color Functions
+##
+
+ColorGreen() {
+	echo -ne $green$1$clear
+}
+ColorBlue() {
+	echo -ne $blue$1$clear
+}
+ColorRed() {
+	echo -ne $red$1$clear
+}
+ColorOrange() {
+	echo -ne $orange$1$clear
+}
+ColorCyan() {
+	echo -ne $cyan$1$clear
+}
+# Enable Color - ON/Clear
+#
+ColorGreen() {
+	echo -ne $green$1$clear
+}
+ColorBlueON() {
+	echo -ne $blue
+}
+ColorRedON() {
+	echo -ne $red
+}
+ColorOrangeON() {
+	echo -ne $orange
+}
+ColorCyanON() {
+	echo -ne $cyan
+}
+ColorClear() {
+	echo -ne $clear
+}
+
+echo -ne "$(ColorGreen '---------------------------------------------------------')\n"
+##
+# Make sure that openssl is installed
+##
+if ! [ -x "$(command -v openssl)" ]; then
+	echo "The openssl command is required! Please install it and then try again"
+	exit 1
+fi
+
+##
+# Check if there is an input
+##
+if [[ $1 ]]; then
+	host $1 >/dev/null
+	if [ $? -eq 0 ]; then
+		echo -e "$(ColorGreen '#') $(ColorGreen 'Certificate Info for:')\t$1"
+	else
+		echo -e "Error: Could Not Resolve $(ColorGreen ${1}) Domain Name..."
+		exit 1
+	fi
+fi
+
+case $1 in
+# Usage example
+help)
+	echo -ne "Usage:
+$(ColorGreen './ssl domain.com')
+"
+	exit 1
+	;;
+"")
+	echo -ne "Usage:
+$(ColorGreen './ssl domain.com')
+"
+	exit 1
+	;;
+*)
+	today=$(date +%F)
+	expires=$(echo | openssl s_client -servername $1 -connect $1:443 2>/dev/null | openssl x509 -noout -dates | grep 'notAfter' | sed 's/notAfter=//')
+
+# show cert domain and SNIs:
+
+	echo | openssl s_client -servername $1 -connect $1:443 2>/dev/null | openssl x509 -noout -subject | sed 's/subject=/Domain: /'
+	echo | openssl s_client -servername $1 -connect $1:443 2>/dev/null | openssl x509 -text | egrep "DNS:" | tr -d " \t" | tr , '\n' | sed 's/^/	/'
+	echo "$(ColorGreen '----')"
+
+# output status code instead of --fail to show success on e.g. 401 with working cert
+RESPONSE_CODE=$(curl --silent --output /dev/stderr --write-out "%{http_code}" https://$1/ &> /dev/null)
+if [ $? -gt 0 ]; then
+	printf '\e[31m'
+	echo -e "Error with SSL connection to $1"
+	printf '\e[0m'
+	set -e
+	curl  --fail --silent --show-error https://$1/ > /dev/null
+	exit 1
+fi
+
+
+
+
+	echo -e "$(ColorGreen '#') $(ColorGreen 'Certificate Expiry:')"
+
+	# Detect the platform (similar to $OSTYPE)
+	OS="$(uname)"
+	case $OS in
+	'Linux' | 'FreeBSD' | 'SunOS' | 'AIX')
+		echo $((($(date -ud "$expires" +'%s') - $(date -ud "$today" +'%s')) / 60 / 60 / 24)) days
+		;;
+	'Darwin')
+		OS='Mac'
+		export LC_TIME="en_US"
+		# macos - format
+		#date -j -f "%b %d %T %Y %Z" "$expires" +'%s'; date -j -f "%F" "$today" +'%s'
+		## echo $(( ( $(date -ud "$expires" +'%s') - $(date -ud "$today" +'%s') )/60/60/24 )) days
+		THIS_CERT_EXPIRY="$((($(date -j -f "%b %d %T %Y %Z" "$expires" +'%s') - $(date -j -f "%F" "$today" +'%s')) / 60 / 60 / 24))"
+		echo "	$THIS_CERT_EXPIRY days"
+		if [ "30" -gt "$THIS_CERT_EXPIRY" ]; then
+			echo "WARNING: cert expiry below 30 days"
+		fi
+		if [ "7" -gt "$THIS_CERT_EXPIRY" ]; then
+			echo "Error: cert expiry below 7 days"
+		fi
+		;;
+	*)
+		echo "Error: Can't Find DATE command for your OS version!"
+		;;
+	esac
+	echo | openssl s_client -servername $1 -connect $1:443 2>/dev/null | openssl x509 -noout -dates |
+		sed 's/notAfter=/Expires On: /' | sed 's/notBefore=/Issued  On: /'
+	echo "$(ColorGreen '----')"
+
+	echo -e "$(ColorGreen '#') $(ColorGreen 'Certificate Issued by:')"
+	echo | openssl s_client -servername $1 -connect $1:443 2>/dev/null | openssl x509 -noout -issuer | sed 's/issuer=/Issuer: /'
+	echo "$(ColorGreen '----')"
+
+	echo -e "$(ColorGreen '#') $(ColorGreen 'Certificate Chain:')"
+	ColorOrangeON
+ 	echo "QUIT" | openssl s_client -quiet -showcerts -servername $1 -connect $1:443 | grep depth 1> /dev/null || true
+	ColorClear
+	echo "$(ColorGreen '----')"
+	echo -e "$(ColorGreen '#') $(ColorGreen 'Certificate Details:')"
+	#certificates=$(openssl s_client -connect $1:443 -showcerts -tlsextdebug -tls1 2>&1 </dev/null| \
+	#sed -n '/-----BEGIN/,/-----END/ {/-----BEGIN/ s/^/:/p}');
+	OLDIFS=$IFS
+	IFS=':'
+	certificates=$(echo | openssl s_client -servername $1 -showcerts -connect "$1:443" 2>&1 |
+		sed -n '/-----BEGIN/,/-----END/p' | sed 's/^-----BEGIN/:-----BEGIN/')
+	for certificate in ${certificates#:}; do
+		ColorOrangeON
+		#echo $certificate | tee >(openssl x509 -noout -serial) >(openssl x509 -noout -subject)
+		for attr in subject serial fingerprint; do echo $certificate | openssl x509 -noout -$attr | tr -d ":" | tr '[:upper:]' '[:lower:]'; done
+		echo ''
+	done
+	IFS=$OLDIFS
+	echo "$(ColorGreen '----')"
+	;;
+esac

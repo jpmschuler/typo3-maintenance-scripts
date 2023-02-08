@@ -1,0 +1,2 @@
+#!/bin/bash
+typo3-get-domains-from-siteconfig | xargs -n1 ssl-check
