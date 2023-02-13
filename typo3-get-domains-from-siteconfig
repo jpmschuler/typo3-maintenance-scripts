@@ -1,2 +1,2 @@
 #!/bin/bash
-grep "^base:" config/sites/*/* | awk -F/ '{print $6}' | sort
+grep "^base:" config/sites/*/* | awk -F/ '{print $6}' | tr -d '"' | tr -d "'" | sort
