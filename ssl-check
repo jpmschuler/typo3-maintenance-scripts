@@ -75,6 +75,14 @@ if [[ $1 ]]; then
 		echo -e "Error: Could Not Resolve $(ColorGreen ${1}) Domain Name..."
 		exit 1
 	fi
+	HOST="$1"
+fi
+
+# output status code instead of --fail to show success on e.g. 401 with working cert
+if [[ $2 ]]; then
+	PORT="$2"
+else
+	PORT="443"
 fi
 
 case $1 in
@@ -93,22 +101,22 @@ $(ColorGreen './ssl domain.com')
 	;;
 *)
 	today=$(date +%F)
-	expires=$(echo | openssl s_client -servername $1 -connect $1:443 2>/dev/null | openssl x509 -noout -dates | grep 'notAfter' | sed 's/notAfter=//')
+	expires=$(echo | openssl s_client -servername $HOST -connect $HOST:$PORT 2>/dev/null | openssl x509 -noout -dates | grep 'notAfter' | sed 's/notAfter=//')
 
 # show cert domain and SNIs:
 
-	echo | openssl s_client -servername $1 -connect $1:443 2>/dev/null | openssl x509 -noout -subject | sed 's/subject=/Domain: /'
-	echo | openssl s_client -servername $1 -connect $1:443 2>/dev/null | openssl x509 -text | egrep "DNS:" | tr -d " \t" | tr , '\n' | sed 's/^/	/'
+	echo | openssl s_client -servername $HOST -connect $HOST:$PORT 2>/dev/null | openssl x509 -noout -subject | sed 's/subject=/Domain: /'
+	echo | openssl s_client -servername $HOST -connect $HOST:$PORT 2>/dev/null | openssl x509 -text | egrep "DNS:" | tr -d " \t" | tr , '\n' | sed 's/^/	/'
 	echo "$(ColorGreen '----')"
 
 # output status code instead of --fail to show success on e.g. 401 with working cert
-RESPONSE_CODE=$(curl --silent --output /dev/stderr --write-out "%{http_code}" https://$1/ &> /dev/null)
+RESPONSE_CODE=$(curl --silent --output /dev/stderr --write-out "%{http_code}" https://$HOST:$PORT/ &> /dev/null)
 if [ $? -gt 0 ]; then
 	printf '\e[31m'
 	echo -e "Error with SSL connection to $1"
 	printf '\e[0m'
 	set -e
-	curl  --fail --silent --show-error https://$1/ > /dev/null
+	curl  --fail --silent --show-error https://$HOST:$PORT/ > /dev/null
 	exit 1
 fi
 
@@ -142,17 +150,17 @@ fi
 		echo "Error: Can't Find DATE command for your OS version!"
 		;;
 	esac
-	echo | openssl s_client -servername $1 -connect $1:443 2>/dev/null | openssl x509 -noout -dates |
+	echo | openssl s_client -servername $HOST -connect $HOST:$PORT 2>/dev/null | openssl x509 -noout -dates |
 		sed 's/notAfter=/Expires On: /' | sed 's/notBefore=/Issued  On: /'
 	echo "$(ColorGreen '----')"
 
 	echo -e "$(ColorGreen '#') $(ColorGreen 'Certificate Issued by:')"
-	echo | openssl s_client -servername $1 -connect $1:443 2>/dev/null | openssl x509 -noout -issuer | sed 's/issuer=/Issuer: /'
+	echo | openssl s_client -servername $HOST -connect $HOST:$PORT 2>/dev/null | openssl x509 -noout -issuer | sed 's/issuer=/Issuer: /'
 	echo "$(ColorGreen '----')"
 
 	echo -e "$(ColorGreen '#') $(ColorGreen 'Certificate Chain:')"
 	ColorOrangeON
- 	echo "QUIT" | openssl s_client -quiet -showcerts -servername $1 -connect $1:443 | grep depth 1> /dev/null || true
+ 	echo "QUIT" | openssl s_client -quiet -showcerts  -servername $HOST -connect $HOST:$PORT | grep depth 1> /dev/null || true
 	ColorClear
 	echo "$(ColorGreen '----')"
 	echo -e "$(ColorGreen '#') $(ColorGreen 'Certificate Details:')"
@@ -160,7 +168,7 @@ fi
 	#sed -n '/-----BEGIN/,/-----END/ {/-----BEGIN/ s/^/:/p}');
 	OLDIFS=$IFS
 	IFS=':'
-	certificates=$(echo | openssl s_client -servername $1 -showcerts -connect "$1:443" 2>&1 |
+	certificates=$(echo | openssl s_client  -servername $HOST -connect $HOST:$PORT -showcerts 2>&1 |
 		sed -n '/-----BEGIN/,/-----END/p' | sed 's/^-----BEGIN/:-----BEGIN/')
 	for certificate in ${certificates#:}; do
 		ColorOrangeON
